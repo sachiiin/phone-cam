@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phone Cam — WebRTC</title>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0f;
+    color: #e0e0e8;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .header {
+    width: 100%;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #1a1a2e;
+    background: #0e0e18;
+  }
+
+  .header h1 {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: #6366f1;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #888;
+  }
+
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #555;
+    transition: background 0.3s;
+  }
+  .status-dot.connected { background: #34d399; box-shadow: 0 0 8px #34d39966; }
+  .status-dot.waiting { background: #facc15; box-shadow: 0 0 8px #facc1544; }
+  .status-dot.error { background: #f87171; box-shadow: 0 0 8px #f8717166; }
+
+  .main {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  /* ── Mode Picker ── */
+  .mode-picker {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .mode-card {
+    background: #12121e;
+    border: 1px solid #1e1e34;
+    border-radius: 14px;
+    padding: 40px 36px;
+    width: 280px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .mode-card:hover {
+    border-color: #6366f1;
+    transform: translateY(-2px);
+  }
+
+  .mode-card .icon {
+    font-size: 40px;
+    margin-bottom: 16px;
+    opacity: 0.8;
+  }
+
+  .mode-card h2 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #d0d0e0;
+  }
+
+  .mode-card p {
+    font-size: 13px;
+    color: #666;
+    line-height: 1.5;
+  }
+
+  /* ── Panels ── */
+  .panel {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    width: 100%;
+    max-width: 800px;
+  }
+  .panel.active { display: flex; }
+
+  /* ── Camera Panel (Phone) ── */
+  .camera-preview {
+    width: 100%;
+    max-width: 480px;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #1e1e34;
+    background: #000;
+    position: relative;
+  }
+
+  .camera-preview video {
+    width: 100%;
+    display: block;
+    transform: scaleX(-1);
+  }
+
+  .code-display {
+    background: #12121e;
+    border: 1px solid #1e1e34;
+    border-radius: 12px;
+    padding: 24px 36px;
+    text-align: center;
+  }
+
+  .code-display .label {
+    font-size: 11px;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+  }
+
+  .code-display .code {
+    font-size: 36px;
+    font-weight: 700;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    color: #6366f1;
+    letter-spacing: 6px;
+    user-select: all;
+  }
+
+  .code-display .hint {
+    font-size: 12px;
+    color: #555;
+    margin-top: 10px;
+  }
+
+  .cam-select-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .cam-select-row select {
+    padding: 6px 12px;
+    background: #0a0a14;
+    border: 1px solid #2a2a40;
+    border-radius: 6px;
+    color: #e0e0e8;
+    font-size: 13px;
+    outline: none;
+  }
+
+  .cam-select-row select:focus { border-color: #6366f1; }
+
+  .peer-count {
+    font-size: 13px;
+    color: #888;
+  }
+
+  /* ── Viewer Panel (PC) ── */
+  .join-box {
+    background: #12121e;
+    border: 1px solid #1e1e34;
+    border-radius: 12px;
+    padding: 32px;
+    text-align: center;
+    width: 100%;
+    max-width: 400px;
+  }
+
+  .join-box h2 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: #d0d0e0;
+  }
+
+  .join-box p {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 24px;
+  }
+
+  .code-input {
+    width: 100%;
+    padding: 14px;
+    background: #0a0a14;
+    border: 1px solid #2a2a40;
+    border-radius: 8px;
+    color: #e0e0e8;
+    font-size: 24px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    text-align: center;
+    letter-spacing: 6px;
+    outline: none;
+    margin-bottom: 16px;
+  }
+  .code-input:focus { border-color: #6366f1; }
+  .code-input::placeholder {
+    color: #333;
+    letter-spacing: 4px;
+    font-size: 16px;
+  }
+
+  .btn {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-primary { background: #6366f1; color: white; }
+  .btn-primary:hover { background: #5558e6; }
+  .btn-primary:disabled { background: #333; color: #666; cursor: not-allowed; }
+
+  .btn-back {
+    background: none;
+    border: 1px solid #2a2a40;
+    color: #888;
+    padding: 8px 16px;
+    width: auto;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+  .btn-back:hover { border-color: #6366f1; color: #c0c0d0; }
+
+  .video-container {
+    position: relative;
+    width: 100%;
+    max-width: 1100px;
+    background: #000;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid #1e1e34;
+  }
+
+  .video-container video {
+    width: 100%;
+    display: block;
+  }
+
+  .toolbar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 12px 16px;
+    background: linear-gradient(transparent, rgba(0,0,0,0.85));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .video-container:hover .toolbar { opacity: 1; }
+
+  .tool-btn {
+    padding: 7px 14px;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    color: white;
+    font-size: 12px;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    transition: background 0.2s;
+  }
+  .tool-btn:hover { background: rgba(255,255,255,0.22); }
+
+  .info-bar {
+    width: 100%;
+    max-width: 1100px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    color: #444;
+  }
+
+  .error-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1a1012;
+    color: #f87171;
+    border: 1px solid #3a2020;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    display: none;
+    z-index: 100;
+    max-width: 90%;
+    text-align: center;
+  }
+  .error-toast.show { display: block; }
+
+  @media (max-width: 600px) {
+    .mode-picker { flex-direction: column; align-items: center; }
+    .mode-card { width: 100%; max-width: 320px; padding: 28px 24px; }
+    .camera-preview { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>&#9673; PHONE CAM</h1>
+  <div class="header-right">
+    <span id="statusText">Choose a mode</span>
+    <span class="status-dot" id="statusDot"></span>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- Mode Picker -->
+  <div class="mode-picker" id="modePicker">
+    <div class="mode-card" onclick="startCamera()">
+      <div class="icon">&#128247;</div>
+      <h2>Share Camera</h2>
+      <p>Open this on your <strong>phone</strong>. It will access your camera and generate a code for the viewer.</p>
+    </div>
+    <div class="mode-card" onclick="showViewer()">
+      <div class="icon">&#128421;</div>
+      <h2>View Camera</h2>
+      <p>Open this on your <strong>PC</strong>. Enter the code from your phone to receive the live feed.</p>
+    </div>
+  </div>
+
+  <!-- Camera Panel (Phone) -->
+  <div class="panel" id="cameraPanel">
+    <div class="camera-preview">
+      <video id="localVideo" autoplay playsinline muted></video>
+    </div>
+
+    <div class="cam-select-row">
+      <select id="camSelect" onchange="switchCamera()"></select>
+      <span class="peer-count" id="peerCount"></span>
+    </div>
+
+    <div class="code-display" id="codeDisplay" style="display:none;">
+      <div class="label">Your Room Code</div>
+      <div class="code" id="roomCode">——</div>
+      <div class="hint">Enter this on the PC viewer to connect</div>
+    </div>
+
+    <button class="btn btn-back" onclick="goBack()">&#8592; Back</button>
+  </div>
+
+  <!-- Viewer Panel (PC) -->
+  <div class="panel" id="viewerPanel">
+
+    <div class="join-box" id="joinBox">
+      <h2>Enter Room Code</h2>
+      <p>Type the code shown on your phone's screen.</p>
+      <input class="code-input" id="codeInput" type="text" maxlength="6" placeholder="------" oninput="this.value = this.value.toUpperCase()">
+      <button class="btn btn-primary" id="joinBtn" onclick="joinRoom()">Connect</button>
+    </div>
+
+    <div class="video-container" id="videoContainer" style="display:none;">
+      <video id="remoteVideo" autoplay playsinline></video>
+      <div class="toolbar">
+        <button class="tool-btn" onclick="screenshotVideo()">&#128247; Screenshot</button>
+        <button class="tool-btn" onclick="toggleFS()">&#9974; Fullscreen</button>
+        <button class="tool-btn" onclick="toggleMirrorV()">&#8646; Mirror</button>
+      </div>
+    </div>
+
+    <div class="info-bar" id="infoBar" style="display:none;">
+      <span id="connInfo"></span>
+      <span id="vidRes"></span>
+    </div>
+
+    <button class="btn btn-back" onclick="goBack()">&#8592; Back</button>
+  </div>
+
+</div>
+
+<div class="error-toast" id="errorToast"></div>
+
+<script>
+  let peer = null;
+  let localStream = null;
+  let currentCall = null;
+  let isMirrored = false;
+  let connectedPeers = 0;
+
+  function showError(msg) {
+    const t = document.getElementById('errorToast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 6000);
+  }
+
+  function setStatus(text, state) {
+    document.getElementById('statusText').textContent = text;
+    document.getElementById('statusDot').className = 'status-dot ' + (state || '');
+  }
+
+  function generateCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+    return code;
+  }
+
+  function goBack() {
+    // Cleanup
+    if (peer) { peer.destroy(); peer = null; }
+    if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+    currentCall = null;
+    connectedPeers = 0;
+    isMirrored = false;
+
+    document.getElementById('modePicker').style.display = 'flex';
+    document.getElementById('cameraPanel').classList.remove('active');
+    document.getElementById('viewerPanel').classList.remove('active');
+    document.getElementById('joinBox').style.display = 'block';
+    document.getElementById('videoContainer').style.display = 'none';
+    document.getElementById('infoBar').style.display = 'none';
+    document.getElementById('remoteVideo').srcObject = null;
+    document.getElementById('codeInput').value = '';
+    setStatus('Choose a mode', '');
+  }
+
+  // ─── CAMERA MODE (Phone) ───
+
+  async function startCamera() {
+    document.getElementById('modePicker').style.display = 'none';
+    document.getElementById('cameraPanel').classList.add('active');
+    setStatus('Starting camera...', 'waiting');
+
+    try {
+      // Enumerate cameras
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter(d => d.kind === 'videoinput');
+      const camSelect = document.getElementById('camSelect');
+      camSelect.innerHTML = '';
+      cams.forEach((cam, i) => {
+        const opt = document.createElement('option');
+        opt.value = cam.deviceId;
+        opt.textContent = cam.label || ('Camera ' + (i + 1));
+        // Default to back camera if available
+        if (cam.label.toLowerCase().includes('back') || cam.label.toLowerCase().includes('rear')) {
+          opt.selected = true;
+        }
+        camSelect.appendChild(opt);
+      });
+
+      // Get stream — prefer back camera
+      const constraints = {
+        video: {
+          deviceId: camSelect.value ? { exact: camSelect.value } : undefined,
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          facingMode: { ideal: 'environment' }
+        },
+        audio: true
+      };
+
+      localStream = await navigator.mediaDevices.getUserMedia(constraints);
+      document.getElementById('localVideo').srcObject = localStream;
+
+      // Re-populate labels after permission granted
+      const devicesAfter = await navigator.mediaDevices.enumerateDevices();
+      const camsAfter = devicesAfter.filter(d => d.kind === 'videoinput');
+      camSelect.innerHTML = '';
+      camsAfter.forEach((cam, i) => {
+        const opt = document.createElement('option');
+        opt.value = cam.deviceId;
+        opt.textContent = cam.label || ('Camera ' + (i + 1));
+        if (localStream.getVideoTracks()[0].getSettings().deviceId === cam.deviceId) {
+          opt.selected = true;
+        }
+        camSelect.appendChild(opt);
+      });
+
+      // Create peer
+      const code = generateCode();
+      peer = new Peer('phonecam-' + code);
+
+      peer.on('open', () => {
+        document.getElementById('roomCode').textContent = code;
+        document.getElementById('codeDisplay').style.display = 'block';
+        setStatus('Waiting for viewer...', 'waiting');
+      });
+
+      peer.on('call', (call) => {
+        call.answer(localStream);
+        connectedPeers++;
+        document.getElementById('peerCount').textContent = connectedPeers + ' viewer(s) connected';
+        setStatus('Live — streaming', 'connected');
+
+        call.on('close', () => {
+          connectedPeers = Math.max(0, connectedPeers - 1);
+          document.getElementById('peerCount').textContent = connectedPeers > 0
+            ? connectedPeers + ' viewer(s) connected'
+            : '';
+          if (connectedPeers === 0) setStatus('Waiting for viewer...', 'waiting');
+        });
+      });
+
+      peer.on('error', (err) => {
+        if (err.type === 'unavailable-id') {
+          showError('Code collision — try refreshing the page.');
+        } else {
+          showError('Connection error: ' + err.message);
+        }
+        setStatus('Error', 'error');
+      });
+
+    } catch (err) {
+      showError('Camera access denied or not available: ' + err.message);
+      setStatus('Error', 'error');
+    }
+  }
+
+  async function switchCamera() {
+    if (!localStream) return;
+    const camId = document.getElementById('camSelect').value;
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: camId }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: true
+      });
+
+      // Replace tracks in local preview
+      document.getElementById('localVideo').srcObject = newStream;
+
+      // Replace tracks in active peer connections
+      if (peer) {
+        const videoTrack = newStream.getVideoTracks()[0];
+        const audioTrack = newStream.getAudioTracks()[0];
+        for (const conn of Object.values(peer.connections)) {
+          conn.forEach(c => {
+            if (c.peerConnection) {
+              const senders = c.peerConnection.getSenders();
+              senders.forEach(sender => {
+                if (sender.track && sender.track.kind === 'video' && videoTrack) {
+                  sender.replaceTrack(videoTrack);
+                }
+                if (sender.track && sender.track.kind === 'audio' && audioTrack) {
+                  sender.replaceTrack(audioTrack);
+                }
+              });
+            }
+          });
+        }
+      }
+
+      // Stop old tracks
+      localStream.getTracks().forEach(t => t.stop());
+      localStream = newStream;
+    } catch (err) {
+      showError('Could not switch camera: ' + err.message);
+    }
+  }
+
+  // ─── VIEWER MODE (PC) ───
+
+  function showViewer() {
+    document.getElementById('modePicker').style.display = 'none';
+    document.getElementById('viewerPanel').classList.add('active');
+    setStatus('Enter room code', '');
+    document.getElementById('codeInput').focus();
+  }
+
+  function joinRoom() {
+    const code = document.getElementById('codeInput').value.trim().toUpperCase();
+    if (code.length < 4) {
+      showError('Enter the full code from your phone.');
+      return;
+    }
+
+    const joinBtn = document.getElementById('joinBtn');
+    joinBtn.disabled = true;
+    joinBtn.textContent = 'Connecting...';
+    setStatus('Connecting...', 'waiting');
+
+    peer = new Peer();
+
+    peer.on('open', () => {
+      const call = peer.call('phonecam-' + code, createEmptyStream());
+      currentCall = call;
+
+      call.on('stream', (remoteStream) => {
+        const remoteVideo = document.getElementById('remoteVideo');
+        remoteVideo.srcObject = remoteStream;
+        document.getElementById('joinBox').style.display = 'none';
+        document.getElementById('videoContainer').style.display = 'block';
+        document.getElementById('infoBar').style.display = 'flex';
+        document.getElementById('connInfo').textContent = 'Room: ' + code;
+        setStatus('Live', 'connected');
+
+        remoteVideo.onloadedmetadata = () => {
+          document.getElementById('vidRes').textContent =
+            remoteVideo.videoWidth + ' × ' + remoteVideo.videoHeight;
+        };
+      });
+
+      call.on('close', () => {
+        setStatus('Disconnected', 'error');
+        showError('Phone disconnected.');
+      });
+
+      call.on('error', (err) => {
+        showError('Stream error: ' + err.message);
+        setStatus('Error', 'error');
+      });
+
+      // Timeout if no stream after 10s
+      setTimeout(() => {
+        if (!document.getElementById('remoteVideo').srcObject) {
+          showError('Could not reach phone. Check the code and make sure the phone page is open.');
+          joinBtn.disabled = false;
+          joinBtn.textContent = 'Connect';
+          setStatus('Failed', 'error');
+          if (peer) { peer.destroy(); peer = null; }
+        }
+      }, 10000);
+    });
+
+    peer.on('error', (err) => {
+      showError('Connection error: ' + err.message);
+      joinBtn.disabled = false;
+      joinBtn.textContent = 'Connect';
+      setStatus('Error', 'error');
+    });
+  }
+
+  // PeerJS call() requires a stream; send an empty one since we only receive
+  function createEmptyStream() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    const ctx = canvas.getContext('2d');
+    ctx.fillRect(0, 0, 1, 1);
+    return canvas.captureStream(0);
+  }
+
+  // ─── Viewer Tools ───
+
+  function screenshotVideo() {
+    const v = document.getElementById('remoteVideo');
+    if (!v.srcObject) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = v.videoWidth;
+    canvas.height = v.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (isMirrored) { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(v, 0, 0);
+    const link = document.createElement('a');
+    link.download = 'phonecam_' + Date.now() + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }
+
+  function toggleFS() {
+    const c = document.getElementById('videoContainer');
+    if (!document.fullscreenElement) c.requestFullscreen().catch(() => {});
+    else document.exitFullscreen();
+  }
+
+  function toggleMirrorV() {
+    isMirrored = !isMirrored;
+    document.getElementById('remoteVideo').style.transform = isMirrored ? 'scaleX(-1)' : 'none';
+  }
+</script>
+
+</body>
+</html>
